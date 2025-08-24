@@ -1,8 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Camera, CameraOff, Scan } from 'lucide-react';
 import { DetectionResult, CameraState } from '../types';
-import { detectPlantDisease, preprocessImage } from '../utils/diseaseDetection';
-import * as faceapi from 'face-api.js';
+import { detectPlantDisease, preprocessImage, isLeafImage } from '../utils/diseaseDetection';
 
 interface CameraCaptureProps {
   onDetectionResult: (result: DetectionResult) => void;
@@ -22,18 +21,6 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
     stream: null,
     isProcessing: false
   });
-
-  // Load face detection model once
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri('/models'); // models folder must contain weights
-      } catch (error) {
-        console.error("Error loading face detection model:", error);
-      }
-    };
-    loadModels();
-  }, []);
 
   const startCamera = async () => {
     try {
@@ -75,18 +62,19 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0);
 
-      // ✅ First check for human face
-      const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions());
-      if (detections.length > 0) {
-        alert("❌ Human face detected! Only plant leaf images are allowed.");
-        setIsProcessing(false);
-        return;
-      }
-
-      // ✅ If no face found → preprocess & detect disease
+      // ✅ Step 1: Preprocess
       const processedImageData = preprocessImage(canvas);
-      
+
       try {
+        // ✅ Step 2: Check if image is a leaf
+        const isLeaf = await isLeafImage(processedImageData);
+        if (!isLeaf) {
+          alert("❌ Error: The captured image is not a plant leaf.");
+          setIsProcessing(false);
+          return;
+        }
+
+        // ✅ Step 3: Detect disease if it's a leaf
         const result = await detectPlantDisease(processedImageData);
         onDetectionResult(result);
       } catch (error) {
